@@ -11,4 +11,4 @@ repository.workspace = true
 anyhow = "1"
 libc = "0.2"
 system-properties-bindgen = { path = "../system-properties-bindgen" }
-thiserror = "1"
+thiserror = "2"
