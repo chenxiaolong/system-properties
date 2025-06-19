@@ -5,6 +5,8 @@ fn main() {
 
     let bindings = bindgen::Builder::default()
         .header("bindgen/system_properties.h")
+        // The LLVM version used by bindgen does not define __ANDROID_MIN_SDK_VERSION__.
+        .clang_arg("-D__ANDROID_MIN_SDK_VERSION__=__ANDROID_API__")
         .allowlist_function("__system_property_find")
         .allowlist_function("__system_property_foreach")
         .allowlist_function("__system_property_read_callback")
