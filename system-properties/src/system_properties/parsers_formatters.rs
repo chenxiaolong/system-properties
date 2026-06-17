@@ -22,7 +22,7 @@ pub fn parse_bool(s: &str) -> Result<bool> {
     match s {
         "1" | "true" => Ok(true),
         "0" | "false" => Ok(false),
-        _ => Err(format!("Can't convert '{}' to 'bool'.", s)),
+        _ => Err(format!("Can't convert '{s}' to 'bool'.")),
     }
 }
 

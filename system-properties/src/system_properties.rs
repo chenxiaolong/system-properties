@@ -17,7 +17,6 @@
 
 // Temporary public re-export to avoid breaking dependents.
 pub use self::error::{PropertyWatcherError, Result};
-use anyhow::Context;
 use libc::timespec;
 use std::os::raw::c_char;
 use std::ptr::null;
@@ -104,7 +103,7 @@ impl PropertyWatcher {
     /// Returns an error if the property is empty or doesn't exist.
     pub fn read<T, F>(&mut self, mut f: F) -> Result<T>
     where
-        F: FnMut(&str, &str) -> anyhow::Result<T>,
+        F: FnMut(&str, &str) -> T,
     {
         let prop_info = self.get_prop_info().ok_or(PropertyWatcherError::SystemPropertyAbsent)?;
         let mut result = Err(PropertyWatcherError::ReadCallbackNotCalled);
@@ -113,10 +112,21 @@ impl PropertyWatcher {
             result = (|| {
                 let name = name.ok_or(PropertyWatcherError::MissingCString)?.to_str()?;
                 let value = value.ok_or(PropertyWatcherError::MissingCString)?.to_str()?;
-                f(name, value).map_err(PropertyWatcherError::CallbackError)
+                Ok(f(name, value))
             })()
         });
         result
+    }
+
+    /// Reads the current value of this system property.
+    ///
+    /// Returns `Ok(None)` if the property doesn't exist.
+    pub fn read_string(&mut self) -> Result<Option<String>> {
+        match self.read(|_name, value| value.to_owned()) {
+            Ok(value) => Ok(Some(value)),
+            Err(PropertyWatcherError::SystemPropertyAbsent) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     // Waits for the property that self is watching to be created. Returns immediately if the
@@ -157,7 +167,7 @@ impl PropertyWatcher {
         // If the property is None, then wait for it to be created. Subsequent waits will
         // skip this step and wait for our specific property to change.
         if self.prop_info.is_none() {
-            return self.wait_for_property_creation_until(None);
+            return self.wait_for_property_creation_until(until);
         }
 
         let remaining_timeout = remaining_time_until(until);
@@ -203,7 +213,7 @@ impl PropertyWatcher {
 
         self.wait_for_property_creation_until(until)?;
 
-        while self.read(|_, value| Ok(value != expected_value))? {
+        while self.read(|_, value| value != expected_value)? {
             self.wait_for_property_change_until(until)?;
         }
 
@@ -215,11 +225,7 @@ impl PropertyWatcher {
 ///
 /// Returns `Ok(None)` if the property doesn't exist.
 pub fn read(name: &str) -> Result<Option<String>> {
-    match PropertyWatcher::new(name)?.read(|_name, value| Ok(value.to_owned())) {
-        Ok(value) => Ok(Some(value)),
-        Err(PropertyWatcherError::SystemPropertyAbsent) => Ok(None),
-        Err(e) => Err(e),
-    }
+    PropertyWatcher::new(name)?.read_string()
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
@@ -260,8 +266,8 @@ pub fn write(name: &str, value: &str) -> Result<()> {
     unsafe {
         // If successful, __system_property_set returns 0, otherwise, returns -1.
         system_properties_bindgen::__system_property_set(
-            CString::new(name).context("Failed to construct CString from name.")?.as_ptr(),
-            CString::new(value).context("Failed to construct CString from value.")?.as_ptr(),
+            CString::new(name).map_err(PropertyWatcherError::BadNameError)?.as_ptr(),
+            CString::new(value).map_err(PropertyWatcherError::BadValueError)?.as_ptr(),
         )
     } == 0
     {
@@ -333,13 +339,13 @@ mod test {
     #[test]
     fn parse_bool_test() {
         for s in ["1", "y", "yes", "on", "true"] {
-            assert_eq!(parse_bool(s), Some(true), "testing with {}", s);
+            assert_eq!(parse_bool(s), Some(true), "testing with {s}");
         }
         for s in ["0", "n", "no", "off", "false"] {
-            assert_eq!(parse_bool(s), Some(false), "testing with {}", s);
+            assert_eq!(parse_bool(s), Some(false), "testing with {s}");
         }
         for s in ["random", "00", "of course", "no way", "YES", "Off"] {
-            assert_eq!(parse_bool(s), None, "testing with {}", s);
+            assert_eq!(parse_bool(s), None, "testing with {s}");
         }
     }
 
